@@ -22,16 +22,6 @@ is accounted for in the data quality queries rather than ignored.
 
 Unless stated otherwise, figures below cover January 2021.
 
-## Running these yourself
-
-1. Open the [BigQuery sandbox](https://console.cloud.google.com/bigquery). No credit
-   card or billing account is needed; the free tier covers everything here.
-2. In Query settings, set a maximum bytes billed limit. These queries are scoped to
-   one month and cost far less than the monthly free allowance, but the habit is worth
-   having.
-3. Paste any file from `sql/` and run it. Files 09 and 10 contain two statements each;
-   run them one at a time, or highlight one and use Run selection.
-
 ---
 
 ## What is in here
@@ -178,7 +168,7 @@ Three issues worth flagging before any of the above is quoted as fact:
 
 ---
 
-## Caveats and what I would do differently with production data
+## Warnings and what I would do differently with production data
 
 **Web data measures retention badly.** `user_pseudo_id` comes from a browser cookie.
 Clearing cookies, switching device or switching browser all mint a new id, and
