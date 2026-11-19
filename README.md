@@ -16,9 +16,11 @@ the table name changed.
 `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
 
 Three months of obfuscated GA4 event export from the Google Merchandise Store,
-2020-11-01 to 2021-01-31, one table per day. Google notes that the sample is
-obfuscated and that some fields carry placeholder values, which is accounted for
-in the data quality queries rather than ignored.
+2020-11-01 to 2021-01-31. 4.3M events, 270K users, one table per day. Google notes
+that the sample is obfuscated and that some fields carry placeholder values, which
+is accounted for in the data quality queries rather than ignored.
+
+Unless stated otherwise, figures below cover January 2021.
 
 ## Running these yourself
 
@@ -54,32 +56,125 @@ query deliberately does not claim.
 
 ## Findings
 
-> Replace each bracketed placeholder with the number your run produced, then delete
-> this note. Keep the sentences short and state the implication, not the SQL.
+### The funnel loses almost everyone before the product page
 
-**Funnel.** Of the users who viewed an item, `[x]%` added to cart, `[x]%` of those
-began checkout, and `[x]%` of those completed a purchase. The largest proportional
-drop is at `[step]`, which is where `[n]` users are lost.
+| Step | Users | Pass rate |
+| --- | --- | --- |
+| session_start | 93,552 | |
+| view_item | 19,629 | 21.0% |
+| add_to_cart | 3,832 | 19.5% |
+| begin_checkout | 1,924 | 50.2% |
+| purchase | 1,069 | 55.6% |
 
-**Ordered versus unordered.** Enforcing sequence reduces the completed-funnel count
-from `[n]` to `[n]`, meaning `[x]%` of converting users did not follow the steps in
-order. `[One sentence on what that suggests about how people actually shop.]`
+End to end, 1.14% of users with a session bought something. The two largest
+proportional drops are both at the top: 79% of sessions never reach a product page
+and 80% of product viewers never add anything, which is 73,923 and 15,797 users
+respectively.
 
-**Retention.** Classic D1 retention averages `[x]%` and D7 `[x]%` across cohorts.
-Low, and expected for a merchandise store measured on web: purchase frequency is
-inherently low, and browser cookie churn understates returning users. The shape
-matters more than the level here, and the curve `[does / does not]` flatten.
+**The biggest drop is not automatically the biggest opportunity.** The funnel is
+multiplicative, so a 10% relative improvement at any single step lifts overall
+conversion by the same 10%, wherever that step sits. The real question is not which
+number looks worst but which one is cheapest to move. Here the top of the funnel is
+the more promising target, not because the drop is largest, but because 79% of
+sessions never seeing a product suggests a traffic quality or landing experience
+problem rather than a merchandising one, and those are usually addressable without
+touching the product.
 
-**Segments.** `[Segment]` converts from cart to purchase at `[x]%` against `[x]%`
-for `[segment]`. `[One sentence: is this a bug, a platform issue, or expected?]`
+### One of the funnel steps is not a real step
 
-**A/A check.** The two randomly assigned groups converted at `[x]%` and `[x]%`, a
-gap of `[x]` points on `[n]` users, so the assignment method is `[sound / suspect]`.
+Breaking the checkout stage down further:
 
-**Data quality.** `[x]%` of events carry a placeholder traffic source, so any
-channel-level conversion analysis is incomplete by that margin. Purchase events are
-`[complete / missing fields]`, and `[n]` transaction ids appear more than once,
-which would overstate revenue by `[x]%` if purchases were not deduplicated.
+| Step | Users | Pass rate |
+| --- | --- | --- |
+| begin_checkout | 1,924 | |
+| add_shipping_info | 1,924 | 100.0% |
+| add_payment_info | 1,395 | 72.5% |
+| purchase | 1,069 | 76.6% |
+
+`add_shipping_info` has exactly the same user count as `begin_checkout`, so it is not
+a decision point at all; it fires alongside checkout rather than recording a user
+action. Treating it as a funnel step would report a flawless 100% pass rate and hide
+where the loss actually sits, which is the payment step. Of the 855 users lost after
+beginning checkout, 529 drop before entering payment details and 326 after.
+
+This is the reason a funnel should be defined with the engineers who instrumented it
+rather than assembled from event names that sound sequential.
+
+### No segment explains the drop-off
+
+Across seven device and OS segments, `view_item` to `add_to_cart` ranges from 18.6%
+to 22.2%, and `add_to_cart` to `purchase` from 23.4% to 30.7%. Nothing is an outlier.
+The loss is therefore intrinsic to the flow or to visitor intent, not a
+platform-specific bug, which rules out the cheapest class of explanation before any
+redesign is proposed.
+
+Mobile is marginally better than desktop at the cart stage, not worse: iOS 30.5% and
+Android 30.7% against 26.6% for desktop web.
+
+By country, purchase conversion ranges from 0.74% (India, mobile) to 1.52% (France,
+desktop), with the US at 1.05% desktop and 1.21% mobile. India is the clear low
+outlier on both device types while being the third largest traffic source, and is the
+one segment worth a dedicated look.
+
+### Growth is entirely acquisition
+
+Across the first ten days of January, between 86% and 89% of daily active users were
+first-time visitors, every single day. The returning count rises and falls with total
+traffic rather than accumulating, so the active base is not compounding. Over the
+month, 88,830 of 93,552 users triggered `first_visit`.
+
+A DAU line like this looks like growth and is really throughput. Any slowdown in
+acquisition spend would show up in active users almost immediately.
+
+### Retention is low, and the curve does not settle
+
+December cohorts: D1 between 4.0% and 7.1% (mean around 5.3%), D7 between 0.6% and
+1.1% (mean around 0.8%).
+
+Published mobile benchmarks put the median app near 21-25% on D1 and 8-9% on D7, but
+that comparison is not fair in two directions. This is web data, where `user_pseudo_id`
+is a browser cookie that resets on clearing, device switching and Safari's 7-day ITP
+cap, so genuine returns are undercounted. It is also a merchandise store, where
+buying a branded t-shirt twice in a week is not a behaviour anyone has.
+
+The shape carries more signal than the level, and this curve keeps falling rather than
+flattening onto a retained core. For this category that is expected rather than
+alarming, but it does mean retention is the wrong headline metric for the business.
+Purchase frequency and revenue per cohort would describe it better.
+
+### The A/A check passed, and showed why it is needed
+
+Two randomly assigned groups, no treatment applied:
+
+| Variant | Users | Conversions | Rate |
+| --- | --- | --- | --- |
+| A | 47,261 | 547 | 1.157% |
+| B | 47,529 | 522 | 1.098% |
+
+That is a 5.4% relative difference produced by nothing at all. A two-proportion
+z-test gives z = 0.86, p = 0.39, so the split is sound.
+
+The more useful number falls out of the same arithmetic: at this baseline and sample
+size, the minimum detectable effect at 80% power and 95% confidence is roughly a 17%
+relative lift. Any A/B test run on a population this size that reports a smaller
+difference is reporting noise. Knowing that before launching an experiment is what
+stops a team from shipping a change on the strength of a 5% "win".
+
+### Data quality
+
+Three issues worth flagging before any of the above is quoted as fact:
+
+- `operating_system` reads "Web" for 11,203 of 19,149 segmented users (58.5%), so the
+  actual OS is unavailable for most traffic and OS-level analysis covers only the
+  remaining 41%. A further 481 users carry the `<Other>` placeholder.
+- Daily active users do not fully decompose into new plus returning. Between 26 and 79
+  users per day, roughly 1-2%, have a `user_first_touch_timestamp` later than the day
+  they were active, which cannot happen. Consistent with the documented obfuscation
+  here, but in a live property it would point to broken first-touch assignment.
+- `purchase` fires 1,204 times for 1,069 distinct buyers. That is either repeat
+  purchasing or duplicate events, and the two have opposite implications for revenue.
+  `10_tracking_qa_ecommerce.sql` separates them, and should be run before any revenue
+  figure is published.
 
 ---
 
@@ -101,11 +196,13 @@ definitions first.
 ends on 2021-01-31. Including later cohorts would report false zeros and produce a
 retention chart that collapses at the right edge.
 
-**The funnel is defined, not discovered.** These steps assume a linear path. In a real
-product the first job would be to confirm with the team whether a step can be skipped
-by design, because an optional step always looks like a catastrophic drop-off.
+**The funnel is defined, not discovered.** The `add_shipping_info` result above is the
+evidence: a step that passes 100% of users is not measuring a user decision. In a live
+product the first task would be to walk the event list with the engineers who
+instrumented it and establish which events represent choices and which fire
+automatically.
 
-**Retention is not always the right metric.** For a utility app that is opened once a
+**Retention is not always the right metric.** For a utility product opened once a
 month by design, daily retention measures the wrong thing. Weekly or monthly cohorts,
 and for subscription products the renewal rate, describe the business more honestly.
 
